@@ -75,14 +75,20 @@ struct HookedFileUtils : public cocos2d::CCFileUtils {
 
         return (attrs != INVALID_FILE_ATTRIBUTES &&
                 !(attrs & FILE_ATTRIBUTE_DIRECTORY));
-#else
+#elif !defined(GEODE_IS_ANDROID)
         struct stat st;
         return (stat(path, &st) == 0) && S_ISREG(st.st_mode);
+#else
+        return CCFileUtils::get()->isFileExist(path); // it isn't that slow since it only checks the zip file and doesnt fopen
 #endif
     }
 
     $override
     gd::string getPathForFilename(const gd::string& filename, const gd::string& resolutionDirectory, const gd::string& searchPath) {
+        return getPathForFilename2(filename, resolutionDirectory, searchPath);
+    }
+
+    gd::string getPathForFilename2(std::string_view filename, std::string_view resolutionDirectory, std::string_view searchPath) {
         std::string_view file = filename;
         std::string_view filePath;
 
