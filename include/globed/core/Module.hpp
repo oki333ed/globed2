@@ -2,9 +2,10 @@
 
 #include <Geode/Result.hpp>
 #include <Geode/utils/terminate.hpp>
-#include <globed/core/data/PlayerDisplayData.hpp>
-#include <globed/core/data/PlayerState.hpp>
-#include <globed/config.hpp>
+#include <Geode/loader/Mod.hpp>
+#include "../core/data/PlayerDisplayData.hpp"
+#include "../core/data/PlayerState.hpp"
+#include "../config.hpp"
 
 #define GLOBED_CLAIM_HOOKS(module, modify, ...) \
     do { \
@@ -139,6 +140,8 @@ protected:
     virtual void onUpdate(GlobedGJBGL* gjbgl, float dt) {}
     /// Called every frame when in a level and connected to the server, before onUpdate. Deltatime here is more accurate.
     virtual void onPreUpdate(GlobedGJBGL* gjbgl, float dt) {}
+    /// Return true if respawns should be synced (e.g. if room host has Faster Reset enabled, all players are affected)
+    virtual bool wantsSyncReset() { return false; }
 
 private:
     friend class Core;

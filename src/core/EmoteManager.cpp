@@ -65,8 +65,8 @@ std::vector<uint32_t>& EmoteManager::getSortedEmoteIds() {
     return m_sortedEmoteIds;
 }
 
-std::shared_ptr<Sound> EmoteManager::playEmoteSfx(uint32_t id, std::shared_ptr<RemotePlayer> player) {
-    if (!globed::setting<bool>("core.player.quick-chat-sfx")) return nullptr;
+std::shared_ptr<Sound> EmoteManager::playEmoteSfx(uint32_t id, std::shared_ptr<RemotePlayer> player, bool force) {
+    if (!globed::setting<bool>("core.player.quick-chat-sfx") && !force) return nullptr;
 
     auto it = m_sfxPaths.find(id);
     if (it == m_sfxPaths.end()) {
@@ -93,18 +93,23 @@ std::shared_ptr<Sound> EmoteManager::playEmoteSfx(uint32_t id, std::shared_ptr<R
     return sound;
 }
 
+bool EmoteManager::hasSfx(uint32_t id) {
+    return m_sfxPaths.contains(id);
+}
+
 $on_game(Loaded) {
     auto now = Instant::now();
     auto& em = EmoteManager::get();
 
     std::initializer_list<std::pair<uint32_t, uint32_t>> ranges = {
-        {1, 100},
-        {200, 100},
-        {300, 100},
-        {400, 100},
-        {500, 100},
-        {600, 100},
-        {700, 100},
+        // {1, 100},
+        // {200, 100},
+        // {300, 100},
+        // {400, 100},
+        // {500, 100},
+        // {600, 100},
+        // {700, 100},
+        {1, 700}, // change this whenever we actually go over 700
     };
 
     auto sfc = CCSpriteFrameCache::get();
@@ -114,7 +119,7 @@ $on_game(Loaded) {
             StringBuffer<80> buf;
             buf.append("emote_{}.png"_spr, i);
 
-            if (auto frame = sfc->spriteFrameByName(buf.c_str())) {
+            if (auto frame = sfc->m_pSpriteFrames->objectForKey(buf.c_str())) {
                 if (frame->getTag() != 105871529) { // textureldr magic number
                     em.registerEmote(i, buf.str());
                 }

@@ -1,10 +1,11 @@
 #pragma once
 
-#include <globed/prelude.hpp>
-#include <globed/util/singleton.hpp>
-#include <globed/util/CStr.hpp>
+#include "../prelude.hpp"
+#include "../util/singleton.hpp"
+#include "../util/CStr.hpp"
 #include <Geode/binding/FLAlertLayer.hpp>
 #include <Geode/utils/cocos.hpp>
+#include <Geode/ui/Notification.hpp>
 
 #include <deque>
 

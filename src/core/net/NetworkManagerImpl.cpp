@@ -825,7 +825,6 @@ void NetworkManagerImpl::threadMaybeResendOwnData(LockedConnInfo& info) {
         return;
     }
 
-
     // send own data
 
     this->sendToCentral([&](CentralMessage::Builder& msg) {
@@ -844,6 +843,11 @@ void NetworkManagerImpl::threadMaybeResendOwnData(LockedConnInfo& info) {
                 fl.set(i++, id);
             }
         }
+    });
+
+    this->sendToGame([&](GameMessage::Builder& msg) {
+        auto update = msg.initUpdateIcons();
+        data::encode(PlayerIconData::getOwn(), update.initIcons());
     });
 
     info->m_sentIcons = true;
@@ -964,6 +968,8 @@ void NetworkManagerImpl::sendCentralAuth(AuthKind kind, const std::string& token
         login.setGeodeVersion(Loader::get()->getVersion().toNonVString());
         login.setGlobedVersion(Mod::get()->getVersion().toNonVString());
 
+        // TODO: geode v5.5.0
+        // login.setPlatformDesc(utils::platform::getString());
     });
 }
 
@@ -1057,7 +1063,7 @@ Result<> NetworkManagerImpl::connectCentral(std::string_view url) {
         case PreferConnection::Tcp: ct = qn::ConnectionType::Tcp; break;
         case PreferConnection::Quic: ct = qn::ConnectionType::Quic; break;
         case PreferConnection::Udp: ct = qn::ConnectionType::Udp; break;
-        default: break;
+        case PreferConnection::WebSocket: ct = qn::ConnectionType::WebSocket; break;
     }
 
     log::debug("Preferred protocol: {}", ct.has_value() ? connTypeToString(*ct) : "Auto");
@@ -1354,6 +1360,7 @@ void NetworkManagerImpl::invalidateIcons() {
     if (info) {
         info->m_sentIcons = false;
     }
+    m_workerNotify.notifyOne();
 }
 
 void NetworkManagerImpl::invalidateFriendList() {
@@ -1361,6 +1368,7 @@ void NetworkManagerImpl::invalidateFriendList() {
     if (info) {
         info->m_sentFriendList = false;
     }
+    m_workerNotify.notifyOne();
 }
 
 void NetworkManagerImpl::markAuthorizedModerator() {
@@ -1423,11 +1431,9 @@ std::vector<uint8_t> NetworkManagerImpl::computeUident(int accountId) {
 #endif
     wd.v5 = strlen(wd.v4);
 
-#ifdef __APPLE__
-    auto sdir = Mod::get()->getSaveDir().string();
+    auto sdir = utils::string::pathToString(Mod::get()->getSaveDir());
     wd.v6 = sdir.c_str();
     wd.v7 = sdir.size();
-#endif
 
     size_t outLen = bb_work(wd);
 
@@ -1567,10 +1573,12 @@ void NetworkManagerImpl::sendUpdateUserSettings() {
         gatherUserSettings(update.initSettings());
     });
 
-    this->sendToGame([&](GameMessage::Builder& msg) {
-        auto update = msg.initUpdateUserSettings();
-        gatherUserSettings(update.initSettings());
-    });
+    if (this->isGameConnected()) {
+        this->sendToGame([&](GameMessage::Builder& msg) {
+            auto update = msg.initUpdateUserSettings();
+            gatherUserSettings(update.initSettings());
+        });
+    }
 }
 
 void NetworkManagerImpl::sendRoomStateCheck() {
@@ -2559,7 +2567,7 @@ Result<> NetworkManagerImpl::onGameDataReceived(GameMessage::Reader& msg) {
         } break;
 
         case CHAT_NOT_PERMITTED: {
-            this->invokeListeners(msg::ChatNotPermittedMessage{});
+            this->invokeListeners(data::decodeUnchecked<msg::ChatNotPermittedMessage>(msg.getChatNotPermitted()));
         } break;
 
         case KICKED: {

@@ -107,7 +107,7 @@ void PreloadManager::loadNextBatch(PreloadOptions options) {
             case TextureQuality::High: qualityFactor = 1.f; break;
         }
 
-        size_t base = 100;
+        size_t base = 250;
 
         return (float)base * deviceFactor * threadFactor * qualityFactor;
 
@@ -565,6 +565,14 @@ gd::string PreloadManager::fullPathForFilename(std::string_view input, bool igno
         auto& sp = searchPaths.at(m_sstate.gameSearchPathIdx);
         TRY_PATH(sp);
     }
+
+    // try the real gd resource folder
+#ifdef GEODE_IS_DESKTOP
+    auto realResources = string::pathToString(dirs::getResourcesDir());
+    if (!realResources.empty()) {
+        TRY_PATH(realResources);
+    }
+#endif
 
     log::warn("PreloadManager: missed all known paths, trying everything: {}", input);
 

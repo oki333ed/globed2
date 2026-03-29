@@ -28,8 +28,6 @@
 using namespace geode::prelude;
 using namespace asp::time;
 
-constexpr float VOICE_OVERLAY_PAD_X = 5.f;
-constexpr float VOICE_OVERLAY_PAD_Y = 20.f;
 constexpr auto EMOTE_COOLDOWN = Duration::fromMillis(2500);
 static constexpr bool APPLY_PERCENTAGE_FIX = true;
 
@@ -117,7 +115,7 @@ void GlobedGJBGL::setupNecessary() {
     auto& fields = *m_fields.self();
 
     fields.m_pingOverlay = Build<PingOverlay>::create()
-        .scale(0.4f)
+        .scale(0.38f)
         .zOrder(11)
         .id("game-overlay"_spr);
     fields.m_pingOverlay->addToLayer(this);
@@ -229,9 +227,10 @@ void GlobedGJBGL::setupAudio() {
                 .parent(parent)
                 .visible(globed::setting<bool>("core.level.voice-overlay"))
                 .zOrder(onTop ? 20 : 1)
-                .pos(winSize.width - VOICE_OVERLAY_PAD_X, VOICE_OVERLAY_PAD_Y)
                 .anchorPoint(1.f, 0.f)
                 .collect();
+
+            self->m_fields->m_voiceOverlay->reposition();
         });
     }
 }
@@ -275,8 +274,19 @@ void GlobedGJBGL::setupListeners() {
         this->onQuickChatReceived(message.accountId, message.quickChatId);
     });
 
-    fields.m_mutedListener = nm.listen<msg::ChatNotPermittedMessage>([this](const msg::ChatNotPermittedMessage&) {
-        m_fields->m_knownServerMuted = true;
+    fields.m_mutedListener = nm.listen<msg::ChatNotPermittedMessage>([this](const msg::ChatNotPermittedMessage& msg) {
+        log::warn("Unable to speak: voice = {}, reason = {}", msg.isVoice, (int)msg.reason);
+        if (!msg.isVoice) return;
+
+        auto& fields = *m_fields.self();
+
+        if (msg.reason == msg::ChatNotPermittedReason::NotLinked) {
+            fields.m_knownNotLinked = true;
+            this->maybeShowVCAlert(msg.reason);
+        } else {
+            fields.m_knownServerMuted = true;
+            this->maybeShowVCAlert(msg.reason);
+        }
     });
 
     fields.m_joinFailedListener = nm.listen<msg::JoinSessionFailedMessage>([this](const msg::JoinSessionFailedMessage& msg) {
@@ -284,11 +294,47 @@ void GlobedGJBGL::setupListeners() {
     });
 }
 
+void GlobedGJBGL::maybeShowVCAlert(msg::ChatNotPermittedReason reason) {
+    auto& fields = *m_fields.self();
+
+    if (fields.m_showedMutedAlert) {
+        return;
+    }
+
+    CStr title;
+    std::string message;
+
+    switch (reason) {
+        case msg::ChatNotPermittedReason::NotLinked: {
+            title = "Not Linked";
+            message = "In order to use <cy>voice chat</c> on Globed, you must open Globed settings and link your <cb>Discord</c> account.\n\n"
+                      "This notice was shown because you tried to activate voice chat while not linked.";
+        } break;
+
+        case msg::ChatNotPermittedReason::Muted: {
+            title = "Muted";
+            message = "You have been <cr>muted</c> by the server moderators, and cannot use voice chat.\n\n"
+                      "This notice was shown because you tried to activate voice chat while muted.";
+        } break;
+
+        // rest are usually temporary errors or cannot happen
+        default: return;
+    }
+
+    PopupManager::get().alert(title, message).showQueue();
+    fields.m_showedMutedAlert = true;
+}
+
+// temporary solution until we at geode come up with a non temporary solution
+static bool ignoreKeybind() {
+    return CCIMEDispatcher::sharedDispatcher()->hasDelegate();
+}
+
 void GlobedGJBGL::setupKeybinds() {
     this->addEventListener(
         KeybindSettingPressedEventV3(Mod::get(), "keybind-voice-chat"),
         [this](Keybind const& keybind, bool down, bool repeat, double time) {
-            if (repeat) return;
+            if (repeat || ignoreKeybind()) return;
 
             down ? this->resumeVoiceRecording() : this->pauseVoiceRecording();
         }
@@ -297,7 +343,7 @@ void GlobedGJBGL::setupKeybinds() {
     this->addEventListener(
         KeybindSettingPressedEventV3(Mod::get(), "keybind-hide-players"),
         [this](Keybind const& keybind, bool down, bool repeat, double time) {
-            if (repeat || !down) return;
+            if (repeat || !down || ignoreKeybind()) return;
 
             this->toggleHidePlayers();
         }
@@ -306,7 +352,7 @@ void GlobedGJBGL::setupKeybinds() {
     this->addEventListener(
         KeybindSettingPressedEventV3(Mod::get(), "keybind-deafen"),
         [this](Keybind const& keybind, bool down, bool repeat, double time) {
-            if (repeat || !down) return;
+            if (repeat || !down || ignoreKeybind()) return;
 
             this->toggleDeafen();
         }
@@ -316,7 +362,7 @@ void GlobedGJBGL::setupKeybinds() {
         this->addEventListener(
             KeybindSettingPressedEventV3(Mod::get(), fmt::format("keybind-emote-{}", i)),
             [this, i](Keybind const& keybind, bool down, bool repeat, double time) {
-                if (repeat || !down) return;
+                if (repeat || !down || ignoreKeybind()) return;
 
                 this->playSelfFavoriteEmote(i);
             }
@@ -997,6 +1043,12 @@ bool GlobedGJBGL::isSpeaking(int playerId) {
     return stream && !stream->isStarving();
 }
 
+bool GlobedGJBGL::isUnableToSpeak() {
+    auto& fields = *m_fields.self();
+
+    return fields.m_knownNotLinked || fields.m_knownServerMuted;
+}
+
 void GlobedGJBGL::setNoticeAlertActive(bool active) {
     auto& fields = *m_fields.self();
 
@@ -1073,9 +1125,11 @@ void GlobedGJBGL::toggleDeafen() {
 
 void GlobedGJBGL::resumeVoiceRecording() {
 #ifdef GLOBED_VOICE_CAN_TALK
-    auto& am = AudioManager::get();
+    if (!g_settings.voiceChat) return;
 
-    if (!g_settings.voiceChat || am.getDeafen()) {
+    auto& am = AudioManager::get();
+    if (am.getDeafen()) {
+        globed::toastError("(Globed) Cannot talk while deafened!");
         return;
     }
 
@@ -1123,6 +1177,20 @@ void GlobedGJBGL::onLevelDataReceived(const msg::LevelDataMessage& message) {
         fields.m_interpolator.updatePlayer(player, fields.m_lastServerUpdate);
     }
 
+    // check for refreshed events
+    for (auto& event : message.events) {
+        if (event.is<DisplayDataRefreshed>()) {
+            int player = event.as<DisplayDataRefreshed>().playerId;
+
+            // refresh this player's data
+            PlayerCacheManager::get().evictToLayer2(player);
+            fields.m_lastDataRequest = 0.f;
+            if (auto rp = this->getPlayer(player)) {
+                rp->markDataOutdated();
+            }
+        }
+    }
+
     for (auto& dd : message.displayDatas) {
         if (dd.accountId <= 0) continue; // should never happen?
 
@@ -1130,7 +1198,7 @@ void GlobedGJBGL::onLevelDataReceived(const msg::LevelDataMessage& message) {
     }
 
     if (!message.displayDatas.empty()) {
-        fields.m_lastDataRequest = 0.f; // reset the time, so that we can request more players
+        fields.m_lastDataRequest = 0.f;
     }
 }
 
@@ -1199,7 +1267,7 @@ void GlobedGJBGL::cleanupGlobedAdditions() {
         fields.m_pingOverlay->updateWithDisconnected();
     }
 
-    for (auto it = fields.m_players.begin(); it != fields.m_players.end(); ++it) {
+    for (auto it = fields.m_players.begin(); it != fields.m_players.end();) {
         this->handlePlayerLeave(it->first, false);
         it = fields.m_players.erase(it);
     }

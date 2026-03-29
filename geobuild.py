@@ -18,10 +18,10 @@ import tomllib
 import sys
 
 # minimum required geode, can be a commit or a tag
-REQUIRED_GEODE_VERSION = "v5.3.0"
-XTLS_VERSION = "228eebd"
-QUNET_VERSION = "116774d"
-SERVER_SHARED_VERSION = "4547817"
+REQUIRED_GEODE_VERSION = "v5.4.0"
+XTLS_VERSION = "12695fe"
+QUNET_VERSION = "020b207"
+SERVER_SHARED_VERSION = "2ed1844"
 CUE_VERSION = "55a3118"
 
 if sys.version_info < (3, 12):
@@ -36,7 +36,7 @@ class GlobedConfig:
     asan: bool = False
     oss: bool = False
     voice: bool = True
-    quic: bool = True
+    ext_transports: bool = True
     advanced_dns: bool = True
     update_check: bool = False
     ignore_geode_mismatch: bool = False
@@ -71,7 +71,7 @@ class GlobedConfig:
             out.oss = get_or(build, "oss", out.oss)
             out.asan = get_or(build, "asan", out.asan)
             out.voice = get_or(build, "voice", out.voice)
-            out.quic = get_or(build, "quic", out.quic)
+            out.ext_transports = get_or(build, "ext_transports", out.ext_transports)
             out.advanced_dns = get_or(build, "advanced_dns", out.advanced_dns)
             out.update_check = get_or(build, "update_check", out.debug) # enabled by default in debug
             out.ignore_geode_mismatch = get_or(build, "ignore_geode_mismatch", out.ignore_geode_mismatch)
@@ -98,7 +98,7 @@ class GlobedConfig:
         out.debug = False
         out.release = True
         out.voice = True
-        out.quic = True
+        out.ext_transports = True
         out.advanced_dns = True
         return out
 
@@ -136,8 +136,8 @@ def make_constants_codegen(state: State) -> str:
 
     constants = {
         "discord": "https://discord.gg/d56q5Dkdm3",
-        "globed-commit": config.get_mod_commit(),
-        "geode-commit": config.get_sdk_commit(),
+        "globed-commit": config.get_mod_commit() or "",
+        "geode-commit": config.get_sdk_commit() or "",
         "build-time": datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC'),
         "build-env": f"{config.compiler_id} {config.compiler_version} ({config.compiler_frontend})",
         "build-opts": " ".join(build_opts),
@@ -410,8 +410,9 @@ def main(build: Build):
         else:
             build.link_library(f"libs/bb/bb-{config.platform.platform_str(include_bit=True)}.a")
 
-    if gc.quic:
+    if gc.ext_transports:
         build.add_definition("GLOBED_QUIC_SUPPORT", "1")
+        build.add_definition("GLOBED_WS_SUPPORT", "1")
 
     ## Add cmake dependencies ##
 
@@ -423,9 +424,12 @@ def main(build: Build):
     build.add_cpm_dep("GlobedGD/server-shared", SERVER_SHARED_VERSION, link_name="ServerShared")
     build.add_cpm_dep("dankmeme01/xtls", XTLS_VERSION, {
         "XTLS_ENABLE_WOLFSSL": "ON",
+        "XTLS_ENABLE_SOCKET": "ON",
+        "XTLS_ENABLE_ARC_SOCKET": "ON",
     })
     build.add_cpm_dep("dankmeme01/qunet-cpp", QUNET_VERSION, {
-        "QUNET_QUIC_SUPPORT": "ON" if gc.quic else "OFF",
+        "QUNET_QUIC_SUPPORT": "ON" if gc.ext_transports else "OFF",
+        "QUNET_WS_SUPPORT": "ON" if gc.ext_transports else "OFF",
         "QUNET_TLS_SUPPORT": "ON",
         "QUNET_ADVANCED_DNS": "ON" if gc.advanced_dns else "OFF",
         "QUNET_DEBUG": "ON" if gc.debug else "OFF",

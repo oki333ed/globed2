@@ -2,7 +2,7 @@
 #include "VisualPlayer.hpp"
 #include "ProgressArrow.hpp"
 #include "ProgressIcon.hpp"
-#include <globed/audio/sound/VoiceStream.hpp>
+#include "../../audio/sound/VoiceStream.hpp"
 
 #include <cocos2d.h>
 
@@ -24,6 +24,7 @@ public:
     bool isDataInitialized() const;
     bool isDataOutdated() const;
     bool isTeamInitialized() const;
+    void markDataOutdated();
     void initData(const PlayerDisplayData& data, bool outdated, uint16_t teamId = 0xffff);
     void updateTeam(uint16_t teamId);
     bool isTeammate(bool whatWhenNoTeams = true);
